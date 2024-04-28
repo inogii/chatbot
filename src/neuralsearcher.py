@@ -181,7 +181,7 @@ class NeuralSearcher:
 
         return output, text_outputs
 
-    def quick_search(self, query:str, limit:int=3, verbose:tuple=(2,0)):
+    def quick_search(self, query:str, limit:int=2, verbose:tuple=(2,0)):
         print('---------------------\nQuerying documents...\n---------------------') if verbose[0]>0 else None 
         results, output_str = self.query(query=query, limit=limit, verbose=verbose[0])
         print('---------------------\nExtracting information...\n---------------------') if verbose[1]>0 else None 
