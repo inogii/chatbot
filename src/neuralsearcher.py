@@ -1,75 +1,17 @@
 import os
 from typing import Union
-
+import subprocess
+import json
 import easyocr
-import fitz
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 from transformers import pipeline
-from PIL import Image
+import requests
 
 from .utils import add_keywords, load, pickler, show_imgs, unpickler
+from .instructions import INSTRUCTIONS
 
 reader = easyocr.Reader(['en'])
-
-
-class PdfProcessor:
-    def __init__(self, collection_name:str, pdf:str, data_dir:str='data/imgs', auto:bool=False):
-        """PDF Processor. Extracts text and images.
-
-        Args:
-            collection_name (str): Name of resulting vector store collection
-            pdf (str): Filepath for input pdf
-            auto (bool, optional): Processes documents automatically. Defaults to False.
-        """
-        self.collection_name = collection_name
-        self.pdf = pdf
-        self.data_dir = data_dir
-        
-        os.makedirs(self.data_dir, exist_ok=True)
-
-        if auto:
-            _ = self.document_processor()
-        
-        
-    # Parse through the PDF
-    def process_image(self, img_bytes, ext, page, n) -> str:
-            pix = fitz.Pixmap(img_bytes)
-            filename = os.path.join(self.data_dir, f"{page}_{n}.{ext}")
-            pix.save(filename)
-            ocr_text = reader.readtext(filename, detail=0)
-            return ' '.join(ocr_text)
-
-    def extract_content(self,page) -> str:
-        # Extract text
-        textpage = page.get_textpage().extractBLOCKS()
-        textpage_data =  [(x0, y0, x1, y1, content.strip(), block_no, block_type) 
-                        for (x0, y0, x1, y1, content, block_no, block_type) in textpage]
-        textpage_sorted = sorted(textpage_data, key=lambda text: (text[1], text[0]))
-        text = '\n'.join([content[4] for content in textpage_sorted])
-
-        # Extract images
-        # get_images -> (xref, smask, width, height, bpc, colorspace, alt. colorspace, name, filter, referencer)
-        # extract_image -> {ext, smask, width, height, colorspace, cs-name, xres, yres, image}
-        imgs_extracted = [ self.doc.extract_image(data[0]) for data in page.get_images() ]
-        if imgs_extracted != []:
-            img_ocrs = [ self.process_image(img['image'], img['ext'], page.number, i) for i, img in enumerate(imgs_extracted) ]
-            keywords = [ add_keywords(img) for img in img_ocrs]
-            text = text+'\n'.join(keywords)
-        
-        return text
-        
-    def document_processor(self, pickle:bool=True) -> list:
-        self.doc = fitz.open(self.pdf) # open a document
-        processed_docs = [ { 'page': page.number, 'text': self.extract_content(page)} for page in tqdm(self.doc) ]
-        print(f'Document {self.pdf} was processed correctly')
-        
-        if pickle:
-            pickler(filename=self.collection_name+'.pickle', data=processed_docs)
-
-        return processed_docs
-
-## Embed to VectorStore
 
 class NeuralSearcher:
     """
@@ -184,42 +126,69 @@ class NeuralSearcher:
             return hits, query_vector
         
         return hits, output_str
+    
 
-    def extract(self, query:str, results:list, limit:int=3, verbose:int=1) -> list:
+    def generate_response(self, prompt):
+        url = "http://localhost:11434/api/generate"
+        data = {"model": "mistral", "prompt": prompt}
+        
+        try:
+            response = requests.post(url, json=data)
+            # Instead of using response.json(), read the raw response text
+            # and manually process each line or JSON object
+            full_response = ""
+            for line in response.iter_lines():
+                if line:  # ignore empty lines
+                    try:
+                        response_data = json.loads(line.decode('utf-8'))
+                        full_response += response_data.get("response", "")
+                    except json.JSONDecodeError as e:
+                        return f"Invalid JSON format in response: {e}", 500
+            return full_response
+        except requests.RequestException as e:
+            return f"Request failed: {e}", 500
+
+
+    def extract(self, query:str, prompt:str, results:list, limit:int=3, verbose:int=1) -> list:
         if verbose>=1:
             print(f'Query: {query}\n')
 
         # get context from results
-        outputs = []
+        # outputs = []
         text_outputs = str()
 
+        context = ''
+
         for i in range(limit):
-            page = results[i].payload['page']+1
-            context = results[i].payload['text']
+            #page = results[i].payload['page']+1
+            context += results[i].payload['text']
             
-            input = {'question': query,'context': context }
-            output = self.pipeline(input)
-            outputs.append(output)
-            
-            if verbose==1:
-                print(f">[page {page}] Quick answer: {output['answer'].strip()} (score: {output['score']:.3f})")
-                text_outputs.append(f"Page {page}: {output['answer'].strip()} (score: {output['score']:.3f})\n")
-            elif verbose==2:
-                print(f"\n>[page {page}: \"{context.splitlines()[0]}\"]\nQuick answer: {output['answer'].strip()} (score: {output['score']:.3f})")
-            elif verbose>2:
-                print(f"\n>[page {page}: \"{context.splitlines()[0]}\" (score: {results[i].score:.3f})]\nQuick answer: {output['answer'].strip()} (score: {output['score']:.3f})")
+            # input = {'question': query,'context': context }
+            # output = self.pipeline(input)
+            # outputs.append(output)
+
+        if prompt is None:
+            prompt = INSTRUCTIONS
+        
+        prompt = f"{prompt} \n Question: {query} \n Context: {context}"
+
+        output = self.generate_response(prompt)
+
+        if verbose==1:
+            text_outputs += str(output)
+            pass
 
 
-        return outputs, text_outputs
+        return output, text_outputs
 
-    def quick_search(self, query:str, limit:int=5, verbose:tuple=(2,0)):
+    def quick_search(self, query:str, limit:int=3, verbose:tuple=(2,0)):
         print('---------------------\nQuerying documents...\n---------------------') if verbose[0]>0 else None 
         results, output_str = self.query(query=query, limit=limit, verbose=verbose[0])
         print('---------------------\nExtracting information...\n---------------------') if verbose[1]>0 else None 
-        _, text_outputs = self.extract(query=query, results=results, limit=limit, verbose=verbose[1])
-        return output_str
+        outputs, text_outputs = self.extract(query=query, prompt=None, results=results, limit=limit, verbose=verbose[1])
+        return outputs
     
-    def image_search(self, filename, limit:int=5, verbose:tuple=(2,0)): # MODIFY FOR IMAGE
+    def image_search(self, filename, prompt, limit:int=3, verbose:tuple=(2,0)): # MODIFY FOR IMAGE
 
         #img = Image.fromarray(image.astype('uint8'), 'RGB')
         # filename = "/tmp/window_title_image.jpg"
@@ -233,5 +202,5 @@ class NeuralSearcher:
         print('---------------------\nQuerying documents...\n---------------------') if verbose[0]>0 else None 
         results, output_str = self.query(query=query, limit=limit, verbose=verbose[0])
         print('---------------------\nExtracting information...\n---------------------') if verbose[1]>0 else None 
-        _, text_outputs = self.extract(query=query, results=results, limit=limit, verbose=verbose[1])
-        return output_str
+        _, text_outputs = self.extract(query=query, prompt=prompt, results=results, limit=limit, verbose=verbose[1])
+        return text_outputs
