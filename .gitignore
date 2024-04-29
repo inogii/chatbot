@@ -4,3 +4,4 @@ models
 notebooks
 src/pdfparser/__pycache__
 .DS_Store
+src/__pycache__
