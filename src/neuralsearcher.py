@@ -1,15 +1,16 @@
-import os
-from typing import Union
-import subprocess
 import json
+import os
+import subprocess
+from typing import Union
+
 import easyocr
+import requests
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 from transformers import pipeline
-import requests
 
-from .utils import add_keywords, load, pickler, show_imgs, unpickler
 from .instructions import INSTRUCTIONS
+from .utils import add_keywords, load, pickler, show_imgs, unpickler
 
 reader = easyocr.Reader(['en'])
 

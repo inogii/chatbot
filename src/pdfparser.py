@@ -3,10 +3,10 @@ from typing import Union
 
 import easyocr
 import fitz
+from PIL import Image
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 from transformers import pipeline
-from PIL import Image
 
 from .utils import add_keywords, load, pickler, show_imgs, unpickler
 
