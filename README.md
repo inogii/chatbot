@@ -9,7 +9,7 @@ The RAG model is a retrieval-augmented generation model that uses a retriever to
 The way the RAG model works is as follows:
 
 1. A parser [PyMuPDF](https://pymupdf.readthedocs.io/en/latest/index.html) converts the input pdf file into a list of sections. 
-2. An embedding model [BGE Small En v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) converts the list of sections into embeddings, which are then stored in an embedding database ([qdrant](https://qdrant.tech/)in our case) 
+2. An embedding model [BGE Small En v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) converts the list of sections into embeddings, which are then stored in an embedding database ( [qdrant](https://qdrant.tech/) in our case ) 
 3. The user asks a question, which is converted into an embedding using the same embedding model.
 4. The embedding database is queried to find the most similar embeddings to the question embedding. We retrieve the top-k most similar embeddings.
 5. The retrieved embeddings are converted back into sections using the parser.
