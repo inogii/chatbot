@@ -1,7 +1,10 @@
-data/*
 flagged
 models
 notebooks
 src/pdfparser/__pycache__
 .DS_Store
 src/__pycache__
+data/imgs
+data/qdrant
+data/rag.json
+data/rag_queries.pickle
